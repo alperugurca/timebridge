@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>TimeBridge — World clock</title>
+    <style>
+      :root {
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        /* Inspired by Radix Colors Slate / Indigo: https://www.radix-ui.com/colors */
+        --text: #1c2024; --muted: #60646c; --border: #d9d9e0; --accent: #3e63dd;
+        --your: #3e63dd; --from: #60646c; --label-width: 228px; --hour-width: 44px;
+        color: var(--text); background: #f9f9fb; font-synthesis: none;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-padding-top: 260px; }
+      body { margin: 0; }
+      button, input { font: inherit; color: inherit; }
+      button { cursor: pointer; }
+      button:focus-visible, input:focus-visible, summary:focus-visible {
+        outline: 3px solid var(--accent); outline-offset: 3px;
+      }
+      button:disabled { opacity: .5; cursor: not-allowed; }
+      button, input { border: 1px solid var(--border); border-radius: 9px; background: #fff; }
+      button { min-height: 40px; padding: 8px 14px; }
+      input { min-height: 40px; padding: 8px 10px; }
+      [hidden] { display: none !important; }
+      .app { max-width: 1440px; margin: 0 auto; padding: 26px 28px; }
+      .header { display: flex; align-items: center; justify-content: center; gap: 16px; }
+      h1 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 23px; letter-spacing: -.7px; }
+      .logo { width: 32px; height: 32px; }
+      .zone-button { display: flex; align-items: center; gap: 12px; max-width: 52%; }
+      #home-zone-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .hero {
+        position: sticky; top: 8px; z-index: 10; display: grid; align-items: center;
+        grid-template-columns: 150px minmax(180px, 1fr) minmax(300px, 1fr);
+        gap: 18px 28px; margin: 20px 0; padding: 18px 24px;
+        border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 4px 16px #1c202408;
+        background: #fff;
+      }
+      .dial { flex: 0 0 150px; width: 150px; height: 150px; }
+      .dial text { font-family: inherit; fill: var(--muted); font-size: 10px; text-anchor: middle; dominant-baseline: central; }
+      .readout { min-width: 0; }
+      .your-label { display: inline-block; margin: 0 0 8px; padding: 4px 10px; color: #fff; background: var(--your); border-radius: 6px; font-size: 13px; font-weight: 700; }
+      .readout h2 { margin: 0 0 4px; font-size: 16px; font-weight: 500; }
+      .digital { white-space: nowrap; font-variant-numeric: tabular-nums; }
+      #selected-time { font-size: 64px; line-height: 1.1; font-weight: 600; letter-spacing: -3px; }
+      #selected-seconds { color: var(--muted); font-size: 22px; }
+      #selected-date { margin: 7px 0 0; color: var(--muted); font-size: 13px; text-align: center; }
+      .tools { display: grid; justify-items: center; gap: 12px; width: 100%; }
+      .date-tools { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; }
+      .date-tools label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+      .icon { padding: 8px; width: 36px; min-height: 38px; }
+      #day { max-width: 158px; font-size: 14px; }
+      #now[aria-pressed="true"] { background: #e3ecff; color: #174cbd; border-color: #a7c1ff; }
+      .controls { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 0; }
+      .mode { font-size: 12px; color: var(--muted); white-space: nowrap; }
+      .controls .zone-button { min-width: 0; }
+      .countdown { width: 100%; max-width: 360px; padding: 10px 14px; text-align: center; background: #f9f9fb; border: 1px solid var(--border); border-radius: 12px; }
+      .countdown-heading { font-size: 11px; color: var(--muted); }
+      #countdown-value { display: block; font-size: 27px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--accent); }
+      #countdown-status { display: block; color: var(--muted); font-size: 11px; }
+      .timeline {
+        overflow-x: auto; border: 1px solid var(--border); border-radius: 14px;
+        background: #fff; scrollbar-color: #acb0be transparent;
+      }
+      .timeline-row { display: flex; width: 100%; min-width: calc(var(--label-width) + 24 * var(--hour-width)); height: 38px; }
+      .row-label {
+        position: sticky; left: 0; z-index: 2; display: flex; align-items: center;
+        flex: 0 0 var(--label-width);
+        background: #fff; border-right: 1px solid var(--border); border-bottom: 1px solid #e6e9ef;
+        font-size: 11px; font-variant-numeric: tabular-nums;
+      }
+      .row-choice {
+        display: flex; align-items: center; justify-content: space-between; gap: 6px;
+        width: 100%; height: 100%; min-height: 0; padding: 0 10px; text-align: left;
+        border: 0; border-radius: 0; background: transparent;
+      }
+      .zone-info { min-width: 0; }
+      .row-label time { font-size: 13px; font-weight: 600; }
+      .zone-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+      .zone-meta { display: flex; align-items: center; gap: 3px; }
+      .zone-offset { color: var(--muted); font-size: 10px; white-space: nowrap; }
+      .day-shift { margin-left: 2px; font-size: 9px; color: var(--muted); }
+      .row-tag { display: none; margin-left: 4px; font-size: 9px; font-weight: 700; border-radius: 3px; padding: 1px 4px; }
+      .home-reference .row-tag, .local-row .row-tag { display: inline; color: #174cbd; background: #dce7ff; }
+      .home-reference .row-label { box-shadow: inset 4px 0 var(--your); background: #eef3ff; }
+      .track { position: relative; flex: 1; min-width: calc(24 * var(--hour-width)); overflow: hidden; }
+      .timeline-head { height: 32px; background: #e6e9ef; }
+      .timeline-head .row-label { padding: 0 10px; background: #e6e9ef; font-size: 11px; }
+      .hours { display: grid; grid-template-columns: repeat(24, 1fr); width: 100%; align-items: center; }
+      .hours span { text-align: center; font-size: 11px; color: var(--muted); }
+      .local-row .row-label { background: #e3ecff; box-shadow: inset 4px 0 var(--your); }
+      .local-row .track::before, .home-reference .track::before { content: ""; position: absolute; inset: 0; border: 2px solid var(--your); pointer-events: none; z-index: 3; }
+      .source-row .row-label { background: #e8e8ec; box-shadow: inset 4px 0 var(--from), inset 0 2px var(--from), inset 0 -2px var(--from); }
+      .source-row .row-tag { display: inline; color: var(--text); background: #d9d9e0; }
+      .source-row .track::after {
+        content: ""; position: absolute; inset: 0; border: 2px solid var(--from);
+        pointer-events: none; z-index: 4;
+      }
+      .slot {
+        position: absolute; top: 0; bottom: 1px; left: var(--left); width: calc(100% / 24);
+        min-height: 0; padding: 0; border: 0; border-right: 1px solid #ffffff44; border-radius: 0;
+        font-size: 12px; font-variant-numeric: tabular-nums;
+      }
+      .night { background: #60646c; color: #fff; }
+      .day { background: #f9f9fb; color: #1c2024; }
+      .slot:hover { filter: brightness(1.08); box-shadow: inset 0 0 0 2px var(--accent); }
+      .slot:focus-visible { outline-offset: -3px; z-index: 3; }
+      .slot[aria-selected="true"] { bottom: 0; border: 0; box-shadow: inset 2px 0 var(--accent), inset -2px 0 var(--accent); filter: none; }
+      .timeline-row:nth-child(2) .slot[aria-selected="true"] { border-top: 2px solid var(--accent); }
+      .timeline-row:last-child .slot[aria-selected="true"] { border-bottom: 2px solid var(--accent); }
+      .marker { position: absolute; left: var(--position); top: 0; bottom: 0; width: 3px; background: #f97316; pointer-events: none; z-index: 5; }
+      footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-top: 16px; color: var(--muted); font-size: 12px; }
+      .source { max-width: 620px; line-height: 1.7; }
+      .source summary { width: fit-content; cursor: pointer; }
+      .source p { margin: 8px 0; }
+      .utc { white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .device { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+      .difference { flex-basis: 100%; }
+      .sync-button { margin: 4px 0; font-size: 12px; }
+      a { color: var(--accent); }
+      .notice { color: #d20f39; font-size: 13px; }
+      dialog { width: min(440px, calc(100% - 32px)); max-height: calc(100dvh - 48px); padding: 24px; color: inherit; background: #f9f9fb; border: 1px solid var(--border); border-radius: 18px; }
+      dialog::backdrop { background: #1c202466; }
+      .dialog-header { display: flex; align-items: center; justify-content: space-between; }
+      .dialog-header h2 { margin: 0; font-size: 21px; }
+      .close { border: 0; background: transparent; font-size: 24px; padding: 4px 10px; }
+      .search { width: 100%; margin: 16px 0 12px; }
+      .results { max-height: 320px; overflow-y: auto; padding: 0; margin: 0; list-style: none; }
+      .zone-option { width: 100%; min-height: 44px; text-align: left; background: transparent; border: 0; }
+      .zone-option:hover { background: #e6e9ef; }
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      @media (max-width: 850px) {
+        .hero { gap: 18px; padding: 16px; grid-template-columns: 120px minmax(0, 1fr); }
+        .dial { flex-basis: 120px; width: 120px; height: 120px; }
+        #selected-time { font-size: 54px; }
+        .tools { grid-column: 1 / -1; }
+        .countdown { min-width: 0; }
+        #countdown-value { font-size: 22px; }
+      }
+      @media (max-width: 520px) {
+        :root { --label-width: 198px; }
+        .app { padding: 20px 12px; }
+        h1 { font-size: 19px; gap: 6px; }
+        .logo { width: 27px; height: 27px; }
+        .zone-button { padding: 8px 10px; font-size: 13px; }
+        .hero { margin: 16px 0; gap: 10px; padding: 12px; grid-template-columns: 88px minmax(0, 1fr); }
+        .dial { flex-basis: 88px; width: 88px; height: 88px; }
+        .readout { flex: 1; }
+        .readout h2 { font-size: 13px; }
+        .your-label { margin-bottom: 5px; font-size: 12px; }
+        #selected-time { font-size: clamp(35px, 10.5vw, 54px); letter-spacing: -2px; }
+        #selected-seconds { font-size: 15px; }
+        #selected-date { font-size: 11px; line-height: 1.5; }
+        .tools { gap: 8px; }
+        .countdown { padding: 8px 12px; }
+        .date-tools { gap: 4px; }
+        #day { flex: 1; min-width: 0; max-width: none; width: 120px; font-size: 12px; }
+        .controls { gap: 6px; }
+        .controls button { padding: 8px; font-size: 12px; }
+        footer { gap: 12px; font-size: 11px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <h1>
+          <svg class="logo" viewBox="0 0 34 34" aria-hidden="true">
+            <rect width="34" height="34" rx="10" fill="#3e63dd"/>
+            <circle cx="17" cy="17" r="10" fill="none" stroke="white" stroke-width="1.7"/>
+            <path d="M17 11v6l5 3" fill="none" stroke="white" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+          TimeBridge
+        </h1>
+      </header>
+
+      <main>
+        <noscript><p class="notice">Enable JavaScript to see the clocks.</p></noscript>
+        <p class="notice" id="error" role="alert" hidden></p>
+        <section class="hero" aria-label="Your local or selected time">
+          <svg class="dial" id="dial" viewBox="0 0 240 240" role="img" aria-label="24-hour clock">
+            <circle cx="120" cy="120" r="116" fill="#ffffff99" stroke="#bcc0cc"/>
+            <g id="dial-marks"></g>
+            <line id="hour-hand" x1="120" y1="131" x2="120" y2="46" stroke="#3e63dd" stroke-width="3.5" stroke-linecap="round"/>
+            <circle cx="120" cy="120" r="5" fill="#3e63dd"/>
+          </svg>
+          <div class="readout">
+            <p class="your-label">Your time</p>
+            <h2 id="selected-zone">Local zone</h2>
+            <div class="digital"><time id="selected-time">--:--</time><span id="selected-seconds">:--</span></div>
+            <p id="selected-date"></p>
+          </div>
+          <div class="tools">
+            <div class="date-tools">
+              <label for="day">UTC day</label>
+              <button class="icon" id="previous-day" type="button" aria-label="Previous day">‹</button>
+              <input id="day" type="date" aria-label="Timeline date (UTC)">
+              <button class="icon" id="next-day" type="button" aria-label="Next day">›</button>
+            </div>
+            <section class="countdown" aria-label="Countdown to the selected instant">
+              <div class="countdown-heading">Countdown</div>
+              <output id="countdown-value" aria-live="off">--:--:--</output>
+              <span id="countdown-status" role="status"></span>
+            </section>
+          </div>
+          <div class="controls">
+            <span class="mode" id="mode-label">Live</span>
+            <button id="now" type="button" aria-pressed="true">Now</button>
+            <button class="zone-button" id="change-zone" type="button" aria-label="Change your time zone">
+              <span id="home-zone-label">Your time</span><span aria-hidden="true">⌄</span>
+            </button>
+          </div>
+        </section>
+        <div class="timeline" id="timeline" role="grid" aria-label="24-hour comparison; columns show UTC, rows show time zones"></div>
+      </main>
+
+      <footer>
+        <details class="source">
+          <summary id="time-status" role="status">Device clock · waiting for internet time</summary>
+          <p id="sync-details">Internet time has not been received yet.</p>
+          <div class="device">
+            <span>Your device <span id="device-zone"></span></span>
+            <time id="device-clock">--:--:--</time>
+            <span class="difference" id="clock-difference">Device clock difference has not been measured yet.</span>
+          </div>
+          <button class="sync-button" id="sync-now" type="button">Sync again</button>
+          <p>Your local zone comes from device settings, not your IP or VPN. The zone selector only changes this app.</p>
+          <p>The timeline date and columns use UTC. +1 means the next day; −1 means the previous day.
+            Reference rows show whole-hour UTC offsets. City names are examples at the selected instant, not year-round equivalents.
+            Your local row follows IANA daylight saving rules. Light hours are 06:00–20:00; dark hours are 20:00–06:00.
+            These are time bands, not actual sunrise or weather.</p>
+          <p>Source: <a href="https://timeapi.io/" target="_blank" rel="noopener noreferrer">TimeAPI.io</a>.
+            Time is fetched every 5 minutes while the page is visible. Network delay is estimated; accuracy is not independently guaranteed.
+            The device clock is used if the last sample is over 10 minutes old.</p>
+          <p>Only a UTC request is sent; your choice and device time are not sent. The service can see your IP address.
+            Time zone rules come from your browser's IANA data; keep your browser updated.</p>
+          <p>Palette inspired by <a href="https://www.radix-ui.com/colors" target="_blank" rel="noopener noreferrer">Radix Colors Slate / Indigo</a>.
+            Blue marks your zone and selected instant; a grey outline marks the selected row. Past times show a negative elapsed duration;
+            Now clears the selection. Countdowns are not saved and do not trigger a background alarm.</p>
+        </details>
+        <span class="utc">UTC <time id="utc-clock">--:--:--</time></span>
+      </footer>
+      <p class="notice" id="storage-note" hidden>Your time zone preference could not be saved.</p>
+    </div>
+    <dialog id="zone-dialog" aria-labelledby="dialog-title">
+      <div class="dialog-header">
+        <h2 id="dialog-title">Your time zone</h2>
+        <button class="close" id="close-dialog" type="button" aria-label="Close">×</button>
+      </div>
+      <label class="sr-only" for="zone-search">Search a city or UTC offset</label>
+      <input class="search" id="zone-search" type="search" placeholder="City or UTC−6…" autocomplete="off" autofocus>
+      <ul class="results" id="zone-results" aria-label="Time zones"></ul>
+      <p id="no-results" role="status" hidden>No results.</p>
+    </dialog>
+
+    <script>
+      "use strict";
+      const STORAGE_KEY = "timebridge.home-zone.v1";
+      const TIME_API_URL = "https://timeapi.io/api/Time/current/zone?timeZone=UTC";
+      const SYNC_INTERVAL_MS = 5 * 60 * 1000;
+      const MAX_SYNC_AGE_MS = 10 * 60 * 1000;
+      const MIN_SYNC_INTERVAL_MS = 15 * 1000;
+      const REQUEST_TIMEOUT_MS = 8000;
+      const MAX_ROUND_TRIP_MS = 3000;
+      const MINUTE = 60000;
+      const DAY = 24 * 60 * MINUTE;
+      const REFERENCE_OFFSETS = Array.from({ length: 27 }, (_, index) => (14 - index) * 60);
+      // Prefer familiar cities, but only label a fixed-offset row with a city using it at the selected instant.
+      const REFERENCE_CITIES = [
+        "Europe/London", "Europe/Paris", "Europe/Istanbul", "America/New_York",
+        "America/Los_Angeles", "America/Chicago", "America/Denver", "America/Anchorage",
+        "Asia/Dubai", "Asia/Tokyo", "Asia/Shanghai", "Asia/Bangkok",
+        "Australia/Sydney", "Pacific/Auckland", "America/Sao_Paulo", "Asia/Karachi",
+        "Asia/Dhaka", "Africa/Cairo", "Australia/Brisbane", "Pacific/Noumea",
+        "Pacific/Fiji", "Pacific/Apia", "Pacific/Kiritimati", "Pacific/Honolulu",
+        "America/Santo_Domingo", "America/Noronha", "Atlantic/Cape_Verde",
+        "Atlantic/Reykjavik", "Pacific/Gambier", "Pacific/Pago_Pago",
+      ];
+      const CITY_NAMES = {
+        "Europe/Istanbul": "Istanbul", "Europe/London": "London", "Europe/Berlin": "Berlin",
+        "Europe/Paris": "Paris", "Europe/Rome": "Rome", "Europe/Athens": "Athens",
+        "Europe/Moscow": "Moscow", "America/New_York": "New York",
+        "America/Los_Angeles": "Los Angeles", "America/Chicago": "Chicago",
+        "America/Toronto": "Toronto", "Asia/Tokyo": "Tokyo", "Asia/Shanghai": "Shanghai",
+        "Asia/Seoul": "Seoul", "Asia/Dubai": "Dubai", "Asia/Kolkata": "Kolkata",
+        "Asia/Calcutta": "Kolkata", "Asia/Kathmandu": "Kathmandu", "Asia/Katmandu": "Kathmandu",
+        "Asia/Kabul": "Kabul", "Asia/Tehran": "Tehran", "Asia/Rangoon": "Yangon",
+        "Australia/Adelaide": "Adelaide", "Australia/Eucla": "Eucla", "Australia/Sydney": "Sydney",
+        "Pacific/Chatham": "Chatham", "Pacific/Marquesas": "Marquesas Islands",
+        "America/St_Johns": "St. John's", "Africa/Cairo": "Cairo",
+        "America/Sao_Paulo": "São Paulo", "America/Noronha": "Fernando de Noronha",
+        "Atlantic/Cape_Verde": "Praia", "Atlantic/Reykjavik": "Reykjavík",
+        "Pacific/Gambier": "Rikitea",
+      };
+      const $ = (selector) => document.querySelector(selector);
+      const utcClock = $("#utc-clock");
+      const deviceClock = $("#device-clock");
+      const deviceZoneLabel = $("#device-zone");
+      const differenceLabel = $("#clock-difference");
+      const timeStatus = $("#time-status");
+      const syncDetails = $("#sync-details");
+      const syncButton = $("#sync-now");
+      const storageNote = $("#storage-note");
+      const dayInput = $("#day");
+      const timeline = $("#timeline");
+      const dialog = $("#zone-dialog");
+      const search = $("#zone-search");
+      const results = $("#zone-results");
+      const zoneButton = $("#change-zone");
+      const countdownValue = $("#countdown-value");
+      const countdownStatus = $("#countdown-status");
+      const numberFormatter = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 1 });
+      const fieldFormatters = new Map();
+      const formatterCache = new Map();
+      let deviceZone;
+      let deviceFormatter;
+      let manualZone = null;
+      let availableZones = [];
+      let utcFormatter;
+      let selectedInstant = null;
+      let sourceOffset = null;
+      let rows = [];
+      let timelineKey = "";
+      let lastSecond;
+      let latestReference = Date.now();
+      let timeSample = null;
+      let syncing = false;
+      let syncError = "";
+      let nextSyncAllowed = -Infinity;
+      let hiddenAt = null;
+
+      function fixedOffset(zone) {
+        if (zone === "UTC") return 0;
+        const match = /^UTC([+-])(\d{2}):(\d{2})$/.exec(zone);
+        if (!match) return null;
+        const minutes = Number(match[2]) * 60 + Number(match[3]);
+        const value = match[1] === "-" ? -minutes : minutes;
+        return Number(match[3]) < 60 && value >= -720 && value <= 840 ? value : null;
+      }
+
+      function offsetZone(offset) {
+        if (offset === 0) return "UTC";
+        return `UTC${offset < 0 ? "-" : "+"}${String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0")}:${String(Math.abs(offset) % 60).padStart(2, "0")}`;
+      }
+
+      function offsetLabel(offset) {
+        return offset % 60 === 0
+          ? offset === 0 ? "UTC" : `UTC${offset < 0 ? "−" : "+"}${Math.abs(offset) / 60}`
+          : offsetZone(offset).replace("-", "−");
+      }
+      function cityName(zone) {
+        return fixedOffset(zone) !== null ? offsetLabel(fixedOffset(zone))
+          : CITY_NAMES[zone] || zone.split("/").at(-1).replaceAll("_", " ");
+      }
+      function homeZone() { return manualZone || deviceZone; }
+
+      function makeFormatters(zone) {
+        if (formatterCache.has(zone)) return formatterCache.get(zone);
+        const offset = fixedOffset(zone);
+        const timeZone = offset === null ? zone : "UTC";
+        const time = new Intl.DateTimeFormat("en-GB", {
+          timeZone, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+        });
+        const date = new Intl.DateTimeFormat("en-GB", {
+          timeZone, weekday: "long", day: "numeric", month: "long", year: "numeric",
+        });
+        const shift = (instant) => new Date(Number(instant) + (offset || 0) * MINUTE);
+        const result = {
+          time: { format: (instant) => time.format(shift(instant)) },
+          date: { format: (instant) => date.format(shift(instant)) },
+        };
+        formatterCache.set(zone, result);
+        return result;
+      }
+
+      function fieldsAt(epoch, zone) {
+        const offset = fixedOffset(zone);
+        if (offset !== null) {
+          const date = new Date(epoch + offset * MINUTE);
+          return {
+            year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate(),
+            hour: date.getUTCHours(), minute: date.getUTCMinutes(), second: date.getUTCSeconds(),
+          };
+        }
+        if (!fieldFormatters.has(zone)) fieldFormatters.set(zone, new Intl.DateTimeFormat("en-GB", {
+          timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+        }));
+        const parts = fieldFormatters.get(zone).formatToParts(new Date(epoch));
+        return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)]));
+      }
+
+      function zoneOffset(zone, epoch) {
+        const fixed = fixedOffset(zone);
+        if (fixed !== null) return fixed;
+        const p = fieldsAt(epoch, zone);
+        return Math.round((Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(epoch / 1000) * 1000) / MINUTE);
+      }
+
+      function dateKey(epoch) { return new Date(epoch).toISOString().slice(0, 10); }
+      function dayStart() { return Date.parse(`${dayInput.value}T00:00:00Z`); }
+      function homeTime(epoch) { return makeFormatters(homeZone()).time.format(new Date(epoch)); }
+      function phase(hour) { return hour >= 6 && hour < 20 ? "day" : "night"; }
+
+      function updateDeviceZone() {
+        const zone = new Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+        if (zone !== deviceZone) {
+          deviceZone = zone;
+          deviceFormatter = makeFormatters(zone).time;
+          deviceZoneLabel.textContent = `· ${cityName(zone)}`;
+          if (!manualZone) timelineKey = "";
+        }
+      }
+
+      function loadZone() {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) { makeFormatters(saved); manualZone = saved; }
+        } catch { /* Invalid or unavailable storage falls back to the device zone. */ }
+      }
+
+      function chooseZone(zone) {
+        manualZone = zone;
+        try {
+          if (zone === null) localStorage.removeItem(STORAGE_KEY);
+          else localStorage.setItem(STORAGE_KEY, zone);
+          storageNote.hidden = true;
+        } catch { storageNote.hidden = false; }
+        timelineKey = "";
+        updateClocks(true);
+      }
+
+      function hasFreshSample(monotonicNow) {
+        return timeSample !== null && monotonicNow >= timeSample.monotonicMs
+          && monotonicNow - timeSample.monotonicMs < MAX_SYNC_AGE_MS;
+      }
+
+      function referenceTime(monotonicNow, deviceNow) {
+        if (!hasFreshSample(monotonicNow)) return deviceNow;
+        return timeSample.epochMs + (monotonicNow - timeSample.monotonicMs);
+      }
+
+      function parseServerTime(data) {
+        if (!data || typeof data !== "object") throw new Error("The service did not return valid UTC time.");
+        const fields = [data.year, data.month, data.day, data.hour, data.minute, data.seconds, data.milliSeconds];
+        if (data.timeZone !== "UTC" || !fields.every(Number.isInteger)) throw new Error("The service did not return valid UTC time.");
+        const [year, month, day, hour, minute, second, millisecond] = fields;
+        const epoch = Date.UTC(year, month - 1, day, hour, minute, second, millisecond);
+        const date = new Date(epoch);
+        const actual = [date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate(),
+          date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds(), date.getUTCMilliseconds()];
+        if (!Number.isFinite(epoch) || actual.some((value, index) => value !== fields[index])) throw new Error("The service returned an invalid date.");
+        return epoch;
+      }
+
+      function updateSource(monotonicNow, deviceNow, referenceNow) {
+        const fresh = hasFreshSample(monotonicNow);
+        deviceClock.textContent = deviceFormatter.format(new Date(deviceNow));
+        deviceClock.dateTime = new Date(deviceNow).toISOString();
+        syncButton.disabled = syncing || monotonicNow < nextSyncAllowed;
+        let status;
+        if (fresh) {
+          const difference = deviceNow - referenceNow;
+          differenceLabel.textContent = Math.abs(difference) < 1000 ? "Your device is approximately in sync with internet time."
+            : `Your device is about ${numberFormatter.format(Math.abs(difference) / 1000)} seconds ${difference > 0 ? "ahead" : "behind"}.`;
+          const age = Math.floor((monotonicNow - timeSample.monotonicMs) / MINUTE);
+          status = syncing ? "Internet time · syncing…"
+            : syncError ? "Last internet time · refresh failed" : "Internet time · TimeAPI.io";
+          syncDetails.textContent = `Last sync: ${age < 1 ? "just now" : `${age} minutes ago`}. Round trip: ${Math.round(timeSample.roundTripMs)} ms. `
+            + "Equal outbound and inbound delay is assumed; this is not a guaranteed error bound."
+            + (syncError ? ` ${syncError}` : "");
+        } else {
+          differenceLabel.textContent = "Device clock difference could not be measured.";
+          status = syncing ? "Device clock · fetching internet time…" : "Device clock · not internet-verified";
+          syncDetails.textContent = syncError || (timeSample ? "The last sync is out of date. Using your device clock." : "Internet time has not been received yet.");
+        }
+        if (timeStatus.textContent !== status) timeStatus.textContent = status;
+      }
+
+      async function synchronizeTime() {
+        const start = performance.now();
+        if (syncing || start < nextSyncAllowed) return;
+        syncing = true; syncError = ""; nextSyncAllowed = start + MIN_SYNC_INTERVAL_MS;
+        updateClocks(true);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+          const url = new URL(TIME_API_URL);
+          url.searchParams.set("_", Math.random().toString(36).slice(2));
+          const response = await fetch(url, {
+            signal: controller.signal, mode: "cors", credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer",
+          });
+          if (!response.ok) {
+            if (response.status === 429) {
+              const retrySeconds = Number(response.headers.get("Retry-After"));
+              nextSyncAllowed = performance.now() + Math.max(60, Number.isFinite(retrySeconds) ? retrySeconds : 60) * 1000;
+            }
+            throw new Error(`Time service unavailable (HTTP ${response.status}).`);
+          }
+          const data = await response.json();
+          const serverEpoch = parseServerTime(data);
+          const end = performance.now();
+          const roundTrip = end - start;
+          if (roundTrip < 0 || roundTrip > MAX_ROUND_TRIP_MS) throw new Error("Connection too slow; this sample was discarded.");
+          // A single HTTP timestamp permits a half-RTT estimate, not NTP-grade error bounds.
+          timeSample = { epochMs: serverEpoch + roundTrip / 2, monotonicMs: end, roundTripMs: roundTrip };
+        } catch (error) {
+          syncError = error.name === "AbortError" ? "The time request timed out."
+            : error instanceof TypeError ? "Cannot reach the time service; check your connection." : error.message;
+        } finally {
+          clearTimeout(timeout); syncing = false; updateClocks(true);
+        }
+      }
+
+      function referenceCities(epoch) {
+        // UTC−12 has no inhabited city. Baker Island is a geographic reference, not a city.
+        const cities = new Map([[-720, { name: "Baker Island", zone: null }]]);
+        for (const zone of REFERENCE_CITIES) {
+          const offset = zoneOffset(zone, epoch);
+          if (offset % 60 === 0 && !cities.has(offset)) cities.set(offset, { name: cityName(zone), zone });
+        }
+        return cities;
+      }
+
+      function selectInstant(epoch, offset) {
+        selectedInstant = epoch; sourceOffset = offset;
+        dayInput.value = dateKey(epoch);
+        updateClocks(true);
+      }
+
+      function updateCountdown(now) {
+        let value = "--:--:--";
+        let status = "";
+        if (selectedInstant !== null) {
+          const difference = selectedInstant - now;
+          const seconds = Math.round(Math.abs(difference) / 1000);
+          const elapsed = difference < 0 && seconds > 0;
+          const days = Math.floor(seconds / 86400);
+          const clock = [Math.floor(seconds / 3600) % 24, Math.floor(seconds / 60) % 60, seconds % 60]
+            .map((value) => String(value).padStart(2, "0")).join(":");
+          value = `${elapsed ? "−" : ""}${days ? `${days}d ` : ""}${clock}`;
+          status = elapsed ? "Elapsed" : seconds === 0 ? "Time reached" : "";
+        }
+        if (countdownValue.textContent !== value) countdownValue.textContent = value;
+        if (countdownStatus.textContent !== status) countdownStatus.textContent = status;
+      }
+
+      function buildDial() {
+        const marks = $("#dial-marks");
+        const ns = "http://www.w3.org/2000/svg";
+        for (let half = 0; half < 48; half++) {
+          const angle = half * Math.PI / 24;
+          const major = half % 2 === 0;
+          const tick = document.createElementNS(ns, "line");
+          tick.setAttribute("x1", 120 + Math.sin(angle) * (major ? 98 : 102));
+          tick.setAttribute("y1", 120 - Math.cos(angle) * (major ? 98 : 102));
+          tick.setAttribute("x2", 120 + Math.sin(angle) * 107);
+          tick.setAttribute("y2", 120 - Math.cos(angle) * 107);
+          tick.setAttribute("stroke", major ? "#8c8fa1" : "#ccd0da");
+          marks.append(tick);
+          if (half % 4 === 0) {
+            const text = document.createElementNS(ns, "text");
+            text.setAttribute("x", 120 + Math.sin(angle) * 82);
+            text.setAttribute("y", 120 - Math.cos(angle) * 82);
+            text.textContent = String(half / 2).padStart(2, "0");
+            marks.append(text);
+          }
+        }
+      }
+
+      function renderTimeline() {
+        const homeOffset = zoneOffset(homeZone(), selectedInstant ?? latestReference);
+        const key = `${dayInput.value}|${homeZone()}|${homeOffset}`;
+        if (timelineKey === key) return;
+        timelineKey = key;
+        const scrollLeft = timeline.scrollLeft;
+        timeline.replaceChildren();
+        const header = document.createElement("div");
+        header.className = "timeline-row timeline-head";
+        header.setAttribute("role", "row");
+        header.innerHTML = '<div class="row-label" role="columnheader">UTC</div><div class="track hours"></div>';
+        for (let hour = 0; hour < 24; hour++) {
+          const label = document.createElement("span");
+          label.setAttribute("role", "columnheader");
+          label.textContent = String(hour).padStart(2, "0");
+          header.lastChild.append(label);
+        }
+        timeline.append(header);
+        rows = [];
+        const startOfDay = dayStart();
+        const definitions = [
+          { zone: homeZone(), offset: homeOffset, local: true },
+          ...REFERENCE_OFFSETS.filter((offset) => offset !== homeOffset)
+            .map((offset) => ({ zone: offsetZone(offset), offset })),
+        ].sort((a, b) => b.offset - a.offset);
+        for (const definition of definitions) {
+          const row = document.createElement("div");
+          row.className = `timeline-row${definition.local ? " local-row" : ""}`;
+          row.setAttribute("role", "row");
+          row.dataset.offset = definition.offset;
+          row.innerHTML = '<div class="row-label" role="rowheader"><button class="row-choice" type="button"><span class="zone-info"><span class="zone-name"></span><span class="zone-meta"><span class="zone-offset"></span><span class="row-tag"></span></span></span><span><time></time><sup class="day-shift"></sup></span></button></div><div class="track" role="presentation"><span class="marker"></span></div>';
+          const choice = row.querySelector(".row-choice");
+          choice.addEventListener("click", () => selectInstant(selectedInstant ?? latestReference, definition.local ? null : definition.offset));
+          const buttons = [];
+          let previousOffset;
+          const fixed = fixedOffset(definition.zone);
+          const step = fixed !== null && fixed % 60 === 0 ? 60 : 15;
+          // Split on local hours and offset changes, including half-hour DST transitions.
+          for (let minute = 0; minute < 1440; minute += step) {
+            const epoch = startOfDay + minute * MINUTE;
+            const p = fieldsAt(epoch, definition.zone);
+            const offset = fixed ?? zoneOffset(definition.zone, epoch);
+            const boundary = minute === 0 || p.minute === 0 || offset !== previousOffset;
+            previousOffset = offset;
+            if (!boundary) continue;
+            const slot = document.createElement("button");
+            slot.className = `slot ${phase(p.hour)}`;
+            slot.type = "button";
+            slot.setAttribute("role", "gridcell");
+            slot.setAttribute("aria-selected", "false");
+            slot.style.setProperty("--left", `${minute / 1440 * 100}%`);
+            const label = `${String(p.hour).padStart(2, "0")}${p.minute ? `:${String(p.minute).padStart(2, "0")}` : ""}`;
+            slot.textContent = label;
+            slot.tabIndex = -1;
+            slot.dataset.epoch = epoch; slot.dataset.hour = p.hour;
+            const localDate = `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+            const shift = Math.round((Date.parse(`${localDate}T00:00:00Z`) - startOfDay) / DAY);
+            if (shift) {
+              const badge = document.createElement("sup");
+              badge.textContent = shift > 0 ? "+1" : "−1";
+              badge.title = shift > 0 ? "Next day (UTC date +1)" : "Previous day (UTC date −1)";
+              slot.append(badge);
+            }
+            slot.setAttribute("aria-label", `${cityName(definition.zone)} ${localDate} ${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`);
+            slot.title = slot.getAttribute("aria-label");
+            slot.addEventListener("click", () => {
+              timeline.querySelectorAll(".slot[tabindex='0']").forEach((button) => { button.tabIndex = -1; });
+              slot.tabIndex = 0;
+              selectInstant(epoch, definition.local ? null : definition.offset);
+            });
+            buttons.push(slot); row.lastChild.append(slot);
+          }
+          buttons.forEach((button, index) => {
+            const start = Number(button.dataset.epoch);
+            const end = Number(buttons[index + 1]?.dataset.epoch ?? startOfDay + DAY);
+            button.style.width = `${(end - start) / DAY * 100}%`;
+            if (end - start < 45 * MINUTE) button.textContent = "";
+          });
+          timeline.append(row);
+          rows.push({
+            ...definition, element: row, choice, city: row.querySelector(".zone-name"),
+            offsetLabel: row.querySelector(".zone-offset"), tag: row.querySelector(".row-tag"),
+            time: row.querySelector("time"), shift: row.querySelector(".day-shift"), buttons,
+          });
+        }
+        const initial = rows[0].buttons[0];
+        if (initial) initial.tabIndex = 0;
+        timeline.scrollLeft = scrollLeft;
+      }
+
+      function updateClocks(force = false) {
+        const monotonicNow = performance.now();
+        const deviceNow = Date.now();
+        latestReference = referenceTime(monotonicNow, deviceNow);
+        updateSource(monotonicNow, deviceNow, latestReference);
+        updateCountdown(latestReference);
+        timeline.style.setProperty("--position", `${((latestReference % DAY) + DAY) % DAY / DAY * 100}%`);
+        utcClock.textContent = utcFormatter.format(new Date(latestReference));
+        utcClock.dateTime = new Date(latestReference).toISOString();
+        const epoch = selectedInstant ?? latestReference;
+        const second = Math.floor(epoch / 1000);
+        if (!force && second === lastSecond) return;
+        lastSecond = second;
+        if (selectedInstant === null || !dayInput.value) dayInput.value = dateKey(epoch);
+        renderTimeline();
+        const p = fieldsAt(epoch, homeZone());
+        const label = cityName(homeZone());
+        $("#home-zone-label").textContent = fixedOffset(homeZone()) === null
+          ? `${label} · ${offsetLabel(zoneOffset(homeZone(), epoch))}` : label;
+        $("#selected-zone").textContent = label;
+        $("#selected-time").textContent = `${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
+        $("#selected-time").dateTime = new Date(epoch).toISOString();
+        $("#selected-seconds").textContent = `:${String(p.second).padStart(2, "0")}`;
+        $("#selected-date").textContent = makeFormatters(homeZone()).date.format(new Date(epoch));
+        $("#hour-hand").setAttribute("transform", `rotate(${(p.hour + p.minute / 60 + p.second / 3600) * 15} 120 120)`);
+        $("#dial").setAttribute("aria-label", `24-hour clock: ${label}, ${homeTime(epoch)}`);
+        $("#now").setAttribute("aria-pressed", String(selectedInstant === null));
+        $("#mode-label").textContent = selectedInstant === null ? "Live" : "Selected time";
+        const cities = referenceCities(epoch);
+        const homeOffset = zoneOffset(homeZone(), epoch);
+        for (const row of rows) {
+          const f = fieldsAt(epoch, row.zone);
+          const shift = Math.round((Date.UTC(f.year, f.month - 1, f.day) - dayStart()) / DAY);
+          const offset = row.local ? zoneOffset(homeZone(), epoch) : row.offset;
+          const city = row.local && fixedOffset(homeZone()) === null
+            ? { name: label, zone: homeZone() } : cities.get(offset);
+          row.city.textContent = city?.name || (row.local ? label : "No city");
+          row.offsetLabel.textContent = offsetLabel(offset);
+          row.choice.title = row.local ? `${homeZone()} · your time`
+            : `${city?.zone || "Uninhabited reference"} · ${offsetLabel(row.offset)} at the selected time. Fixed-offset row.`;
+          row.choice.setAttribute("aria-label", `Select ${row.city.textContent}, ${row.offsetLabel.textContent}${row.local ? ", your time" : ""}`);
+          row.time.textContent = `${String(f.hour).padStart(2, "0")}:${String(f.minute).padStart(2, "0")}`;
+          row.time.dateTime = new Date(epoch).toISOString();
+          row.shift.textContent = shift ? (shift > 0 ? "+1" : "−1") : "";
+          row.shift.title = shift > 0 ? "Next day (UTC date +1)" : shift < 0 ? "Previous day (UTC date −1)" : "";
+          const selected = selectedInstant !== null && (sourceOffset === row.offset || row.local === true && sourceOffset === null);
+          const yourZone = row.local || row.offset === homeOffset;
+          row.element.classList.toggle("home-reference", yourZone);
+          row.element.classList.toggle("source-row", selected);
+          row.tag.textContent = yourZone ? "Your time" : selected ? "Selected" : "";
+          row.element.setAttribute("aria-selected", String(selected));
+          if (force) for (const button of row.buttons) {
+            button.setAttribute("aria-selected", String(selectedInstant !== null && Math.abs(Number(button.dataset.epoch) - epoch) < 1000));
+          }
+        }
+      }
+
+      function normalize(text) {
+        return text.toLowerCase().normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "").replaceAll("ı", "i").replaceAll("−", "-")
+          .replace(/(utc[+-])0(?=\d)/g, "$1").replace(/:00\b/g, "");
+      }
+
+      function renderResults() {
+        const query = normalize(search.value.trim());
+        results.replaceChildren();
+        const options = [{ zone: null, label: `Automatic · ${cityName(deviceZone)}` },
+          ...REFERENCE_OFFSETS.map((offset) => ({ zone: offsetZone(offset), label: offsetLabel(offset) })),
+          ...availableZones.map((zone) => ({ zone, label: cityName(zone) }))];
+        for (const option of options) {
+          const searchable = `${option.label} ${option.zone || ""}`.replace(/:00/g, "");
+          if (!normalize(searchable).includes(query)) continue;
+          const item = document.createElement("li");
+          const button = document.createElement("button");
+          button.type = "button"; button.className = "zone-option"; button.textContent = option.label;
+          button.dataset.zone = option.zone || "auto";
+          button.addEventListener("click", () => { chooseZone(option.zone); dialog.close(); });
+          item.append(button); results.append(item);
+        }
+        $("#no-results").hidden = results.children.length !== 0;
+      }
+
+      function shiftDay(amount) {
+        const current = selectedInstant ?? latestReference;
+        selectInstant(dayStart() + amount * DAY + ((current % DAY) + DAY) % DAY, sourceOffset);
+      }
+
+      try {
+        utcFormatter = makeFormatters("UTC").time;
+        updateDeviceZone(); loadZone();
+        availableZones = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone")
+          : Object.keys(CITY_NAMES).filter((zone) => {
+            try { makeFormatters(zone); return true; } catch { return false; }
+          });
+        availableZones.sort((a, b) => cityName(a).localeCompare(cityName(b), "en"));
+        buildDial(); updateClocks(true); synchronizeTime();
+        setInterval(updateClocks, 250);
+        setInterval(() => { if (!document.hidden) synchronizeTime(); }, SYNC_INTERVAL_MS);
+        zoneButton.addEventListener("click", () => {
+          search.value = ""; renderResults(); dialog.showModal(); search.focus();
+        });
+        $("#close-dialog").addEventListener("click", () => dialog.close());
+        search.addEventListener("input", renderResults);
+        $("#now").addEventListener("click", () => {
+          selectedInstant = null; sourceOffset = null; updateClocks(true);
+        });
+        $("#previous-day").addEventListener("click", () => shiftDay(-1));
+        $("#next-day").addEventListener("click", () => shiftDay(1));
+        dayInput.addEventListener("change", () => {
+          if (!dayInput.value || !Number.isFinite(dayStart())) return;
+          const current = selectedInstant ?? latestReference;
+          selectInstant(dayStart() + ((current % DAY) + DAY) % DAY, sourceOffset);
+        });
+        timeline.addEventListener("keydown", (event) => {
+          const button = event.target.closest(".slot");
+          if (!button || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const rowIndex = rows.findIndex((row) => row.buttons.includes(button));
+          const row = rows[rowIndex];
+          let target;
+          if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+            const next = rows[rowIndex + (event.key === "ArrowUp" ? -1 : 1)];
+            if (next) target = next.buttons.reduce((best, item) =>
+              Math.abs(Number(item.dataset.epoch) - Number(button.dataset.epoch))
+                < Math.abs(Number(best.dataset.epoch) - Number(button.dataset.epoch)) ? item : best);
+          } else {
+            const index = row.buttons.indexOf(button);
+            target = event.key === "Home" ? row.buttons[0] : event.key === "End" ? row.buttons.at(-1)
+              : row.buttons[index + (event.key === "ArrowLeft" ? -1 : 1)];
+          }
+          if (target) { target.focus(); target.click(); }
+        });
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) { hiddenAt = { monotonicMs: performance.now(), deviceMs: Date.now() }; return; }
+          if (hiddenAt && Math.abs((Date.now() - hiddenAt.deviceMs) - (performance.now() - hiddenAt.monotonicMs)) > 2000) timeSample = null;
+          hiddenAt = null; updateDeviceZone(); updateClocks(true);
+          if (!hasFreshSample(performance.now()) || performance.now() - timeSample.monotonicMs >= SYNC_INTERVAL_MS) synchronizeTime();
+        });
+        window.addEventListener("pageshow", (event) => {
+          if (event.persisted) { timeSample = null; updateDeviceZone(); updateClocks(true); synchronizeTime(); }
+        });
+        window.addEventListener("online", synchronizeTime);
+        syncButton.addEventListener("click", synchronizeTime);
+      } catch {
+        $("#error").textContent = "Time zone data could not be loaded. Please try an up-to-date browser.";
+        $("#error").hidden = false; zoneButton.disabled = true; syncButton.disabled = true;
+      }
+    </script>
+  </body>
+</html>
